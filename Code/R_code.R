@@ -12,8 +12,17 @@ library(factoextra) # Extract and Visualize the Results of Multivariate Data Ana
 library(gridExtra) # Miscellaneous Functions for "Grid" Graphics, CRAN v2.3
 library(ggfortify) # Data Visualization Tools for Statistical Analysis Results, CRAN v0.4.10
 library(clustertend) # Check the Clustering Tendency, CRAN v1.4
+library(magrittr) # A Forward-Pipe Operator for R, CRAN v1.5
+library(cluster) # "Finding Groups in Data": Cluster Analysis Extended Rousseeuw etal., CRAN v2.1.0
 library(clValid) # Validation of Clustering Results, CRAN v0.6-7
 library(NbClust) # Determining the Best Number of Clusters in a Data Set, CRAN v3.0
+library(scales) # Scale Functions for Visualization, CRAN v1.1.1
+library(hrbrthemes) # Additional Themes, Theme Components and Utilities for 'ggplot2', CRAN v0.8.0
+library(viridis) # Default Color Maps from 'matplotlib', CRAN v0.5.1
+library(latex2exp) # Use LaTeX Expressions in Plots, CRAN v0.4.0
+
+
+
 
 ##----------------------------------------------------------------
 ##                         Reading Data                         --
@@ -90,7 +99,7 @@ autoplot(scaled_df_pca, data = breast_cancer_scaled, colour = 'diagnosis', loadi
 
 
 rotationed_df <- as.data.frame(predict(scaled_df_pca))
-rotationed_df <- data.frame(diagnosis = breast_cancer$diagnosis, rotationed_df[,1:3])
+rotationed_df <- data.frame(diagnosis = breast_cancer$diagnosis, rotationed_df[,1:2])
 
 
 ##----------------------------------------------------------------
@@ -133,14 +142,23 @@ p3 <- fviz_cluster(k3, data = rotationed_df[,-1]) + ggtitle("k = 2")
 grid.arrange(p2, p3, nrow = 1, ncol = 2)
 
 
-ssc <- data.frame(kmeans = c(2,3),
+ssc <- data.frame(kmeans = c('k=2','k=3'),
                   withinss = c(mean(k2$withinss), mean(k3$withinss)),
                   betweenss = c(k2$betweenss, k3$betweenss))
 
 ssc %<>% gather(., key = "measurement", value = value, -kmeans)
-ssc %>% ggplot(., aes(x=kmeans, y=log(value), fill = measurement)) + geom_bar(stat = "identity", position = "dodge") + 
-  ggtitle("Cluster Model Comparison") + xlab("Number of Clusters") + ylab("Log10 Total Sum of Squares") + 
-  scale_x_discrete(name = "Number of Clusters", limits = c('','2', '3',''))
+ggplot(ssc, aes(fill=measurement, y=log(value), x=kmeans)) + 
+  geom_bar(position="stack", stat="identity") +
+  scale_fill_viridis(discrete = T) +
+  ggtitle("K-means Comparasion") +
+  xlab("") + ylab(TeX("$\\ln{(value)}$"))
+
+
+
+
+##----------------------------------------------------------------
+##                     K-Medoids Clustering                     --
+##----------------------------------------------------------------
 
 
 
@@ -148,22 +166,73 @@ ssc %>% ggplot(., aes(x=kmeans, y=log(value), fill = measurement)) + geom_bar(st
 
 
 
+# function to compute total within-cluster sum of squares
+elbow <- fviz_nbclust(rotationed_df[,-1], pam, method = "wss", k.max = 24) + ggtitle("the Elbow Method") + theme_gray()
+# Gap Statistics
+gap <- fviz_nbclust(rotationed_df[,-1], pam, method = "gap_stat", k.max = 24) + ggtitle("Gap Statistics") + theme_gray()
+# The Silhouette Method
+silhouette1 <- fviz_nbclust(rotationed_df[,-1], pam, method = "silhouette", k.max = 24) + ggtitle("Silhouette Method") + theme_gray()
+# Cluster method
+scaled_nbclust <- NbClust(rotationed_df[,-1], distance = "manhattan", min.nc = 2, max.nc = 10, method = "ward.D2", index ="all",)
+nbclust1 <- fviz_nbclust(scaled_nbclust) + theme_gray() + ggtitle("NbClust's optimal number of clusters")
+grid.arrange(elbow, gap, silhouette1, nbclust1)
+
+
+pam2 <- pam(rotationed_df[,-1],k = 2)
+pam3 <- pam(rotationed_df[,-1],k = 3)
+pamg2 <- fviz_cluster(pam2, data = rotationed_df[,-1]) + ggtitle("k = 2")
+pamg3 <- fviz_cluster(pam3, data = rotationed_df[,-1]) + ggtitle("k = 2")
+grid.arrange(pamg2, pamg3, nrow = 1, ncol = 2)
 
 
 
 
+##----------------------------------------------------------------
+##                    Hierarchical Clustering                   --
+##----------------------------------------------------------------
 
 
+# find optimal algorithm for hierarchical clustering ##
 
+# methods to assess
 
+methods <- c( "average", "single", "complete", "ward")
+names(methods) <- c( "average", "single", "complete", "ward")
 
+# function to compute coefficient
+ac <- function(x) {
+  agnes(rotationed_df[,-1], method = x)$ac
+}
 
+method_result <- map_dbl(methods, ac)
+method_result
+method_df <- data.frame(methods, method_result) # table yap
 
+# Barplot
+ggplot(method_df, aes(x=methods, y=method_result)) + 
+  geom_bar(stat = "identity", fill = 'steelblue') + labs(title = 'Cluster Methods Comparation', x = 'models', y = 'Percentage of Ac')
 
+## find optimal cluster ##
 
+set.seed(31)
+# function to compute total within-cluster sum of squares
+elbow <- fviz_nbclust(rotationed_df[,-1], FUN = hcut, method = "wss", k.max = 24) + ggtitle("The Elbow Method") + theme_gray()
+# Gap Statistics
+gap <- fviz_nbclust(rotationed_df[,-1], FUN = hcut, method = "gap_stat", k.max = 24) + ggtitle("Gap Statistics") + theme_gray()
+# The Silhouette Method
+silhouette1<- fviz_nbclust(rotationed_df[,-1], FUN = hcut, method = "silhouette", k.max = 24) + ggtitle("Silhouette Method") + theme_gray()
 
+grid.arrange(elbow, gap, silhouette1, nrow = 3)
 
-
+# Dissimilarity matrix
+distance <- dist(rotationed_df[,-1], method = "manhattan")
+scaled_h_clust <- hclust(distance, method = "ward.D2")
+plot(scaled_h_clust, cex = 0.6)
+abline(h = 5, lty = 2)
+rect.hclust(scaled_h_clust, k = 5, border = 2:5)
+cut_deng<- as.dendrogram(scaled_h_clust)
+plot(cut(cut_deng, h = 28)$lower[[2]],
+     main = "Second branch of lower tree with cut at h=28")
 
 
 
